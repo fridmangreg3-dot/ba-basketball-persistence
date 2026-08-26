@@ -5,12 +5,14 @@
 library(readxl)
 library(dplyr)
 library(ggplot2)
+library(sandwich)
+library(lmtest)
 # ============================================================
 # 1. EINGABEN
 # ============================================================
 excel_datei <- "/Users/georg/Library/Mobile Documents/com~apple~CloudDocs/Uni/Semester 6/BA/BA/BA_Datensatz_1.xlsx"
-min_spiele <- 60
-N <- 1
+min_spiele <- 60  #55, 65
+N <- 1            # 3, 5, 7, 9
 sheet_name <- 1
 spieler_spalte <- "Player"
 spiele_spalte <- "G...7"
@@ -187,10 +189,6 @@ p_neg <- mean(reg_data$Gleiche_Richtung[reg_data$Trend == -1], na.rm = TRUE)
 p_pos <- mean(reg_data$Gleiche_Richtung[reg_data$Trend == 1], na.rm = TRUE)
 p_gesamt <- mean(reg_data$Gleiche_Richtung, na.rm = TRUE)
 
-cat("P(Schlecht → Schlecht):", round(p_neg * 100, 2), "%\n")
-cat("P(Gut → Gut):         ", round(p_pos * 100, 2), "%\n")
-cat("P(Fortsetzung gesamt):", round(p_gesamt * 100, 2), "%\n")
-cat("Abweichung von 50%:   ", round((p_gesamt - 0.5) * 100, 2), "Prozentpunkte\n")
 
 # ============================================================
 # 6. PERSISTENZ-TEST (LEERMODELL OLS) - GEGEN 50%
@@ -200,6 +198,19 @@ cat("Testet: Weicht die allgemeine Fortsetzungswahrscheinlichkeit von 50% ab?\n\
 
 persistenz_model <- lm(Gleiche_Richtung ~ 1, data = reg_data)
 summary_persistenz <- summary(persistenz_model)
+
+# Cluster-robuster Test für β₀ gegen 0,5 (Cluster: Spieler)
+anzahl_cluster <- dplyr::n_distinct(reg_data$Player)
+df_cluster <- anzahl_cluster - 1
+vcov_persistenz_cluster <- sandwich::vcovCL(
+  persistenz_model, cluster = ~Player, type = "HC1"
+)
+se_beta0_cluster <- sqrt(diag(vcov_persistenz_cluster))[1]
+beta0_cluster <- coef(persistenz_model)[1]
+t_beta0_cluster_gegen_50 <- (beta0_cluster - 0.5) / se_beta0_cluster
+p_beta0_cluster_gegen_50 <- 2 * pt(
+  -abs(t_beta0_cluster_gegen_50), df = df_cluster
+)
 
 # Standard-Ausgabe (testet gegen 0)
 print(summary_persistenz)
@@ -215,22 +226,13 @@ t_gegen_50 <- (beta0 - 0.5) / beta0_se
 # p-Wert (zweiseitig)
 p_gegen_50 <- 2 * pt(-abs(t_gegen_50), df = beta0_df)
 
-cat("\n--- OLS LEERMODELL: TEST GEGEN 50% ---\n")
-cat("Achsenabschnitt (ß₀):", round(beta0, 4), "\n")
-cat("Standardfehler:", round(beta0_se, 4), "\n")
-cat("t-Wert (gegen 0.5):", round(t_gegen_50, 4), "\n")
-cat("df:", beta0_df, "\n")
-cat("p-Wert (gegen 0.5):", round(p_gegen_50, 4), "\n")
+
 # ============================================================
 # 7. PERSISTENZ-TEST (T-TEST)
 # ============================================================
 t_test_persistenz <- t.test(reg_data$Gleiche_Richtung, mu = 0.5)
 
-cat("\n--- T-TEST FUER PERSISTENZ ---\n")
-cat("Mittelwert (P_Fortsetzung):", round(t_test_persistenz$estimate, 4), "\n")
-cat("t-Wert:", round(t_test_persistenz$statistic, 4), "\n")
-cat("df:", round(t_test_persistenz$parameter, 0), "\n")
-cat("p-Wert:", round(t_test_persistenz$p.value, 4), "\n")
+
 # ============================================================
 # 8. PERSISTENZ-TEST (LOGIT-LEERMODELL)
 # ============================================================
@@ -254,12 +256,7 @@ logit_persistenz_OR <- exp(logit_persistenz_beta0)
 # Vorhergesagte Wahrscheinlichkeit
 logit_persistenz_P <- predict(logit_persistenz, type = "response")[1]
 
-cat("\n--- INTERPRETATION LOGIT-LEERMODELL ---\n")
-cat("Log-Odds (ß₀):", round(logit_persistenz_beta0, 4), "\n")
-cat("Odds Ratio (exp(ß₀)):", round(logit_persistenz_OR, 4), "\n")
-cat("Vorhergesagte P(Fortsetzung):", round(logit_persistenz_P * 100, 2), "%\n")
-cat("p-Wert:", round(logit_persistenz_p, 4))
-    
+  
 # ============================================================
 # 9. ASYMMETRIE-TEST (OLS) - ZUSAETZLICH
 # ============================================================
@@ -268,17 +265,22 @@ cat("Testet: Unterscheiden sich gute und schlechte Serien?\n\n")
 
 model_asym <- lm(Gleiche_Richtung ~ Trend, data = reg_data)
 summary_asym <- summary(model_asym)
-print(summary_asym)
 
 beta1 <- coef(summary_asym)[2, 1]
 beta1_p <- coef(summary_asym)[2, 4]
+
+# Cluster-robuster Test für β₁ gegen 0 (keine Asymmetrie)
+vcov_asym_cluster <- sandwich::vcovCL(
+  model_asym, cluster = ~Player, type = "HC1"
+)
+se_beta1_cluster <- sqrt(diag(vcov_asym_cluster))[2]
+t_beta1_cluster_gegen_0 <- beta1 / se_beta1_cluster
+p_beta1_cluster_gegen_0 <- 2 * pt(
+  -abs(t_beta1_cluster_gegen_0), df = df_cluster
+)
 p_neg_asym <- coef(model_asym)[1] + coef(model_asym)[2] * (-1)
 p_pos_asym <- coef(model_asym)[1] + coef(model_asym)[2] * 1
 
-cat("\n--- INTERPRETATION ASYMMETRIE ---\n")
-cat("P(Schlecht → Schlecht):", round(p_neg_asym * 100, 2), "%\n")
-cat("P(Gut → Gut):         ", round(p_pos_asym * 100, 2), "%\n")
-cat("Differenz:", round((p_pos_asym - p_neg_asym) * 100, 2), "Prozentpunkte\n")
 
 # ============================================================
 # 10. LOGIT-REGRESSION (ASYMMETRIE, ROBUST)
@@ -298,11 +300,6 @@ cat("p-Wert:", round(logit_beta1_p, 4),
 # 11. PUNKT-BISERIALE KORRELATION (TREND vs. TREFFERQUOTE)
 # ============================================================
 
-cat("\n\n=== PUNKT-BISERIALE KORRELATION: TREND vs. TREFFERQUOTE ===\n")
-cat("Testet: Hängt die Richtung des Trends mit der Höhe der\n")
-cat("aktuellen Trefferquote zusammen?\n")
-cat("(Positiv = Hot Hand, Negativ = Regression zur Mitte)\n\n")
-
 # Korrelation: Trend vs. Aktuelle_Tq (für die aktuelle Serienlänge N)
 kor_trend_tq <- cor.test(
   reg_data$Trend,
@@ -310,10 +307,6 @@ kor_trend_tq <- cor.test(
   method = "pearson"
 )
 
-cat("--- Ergebnisse für N =", N, "---\n")
-cat("r =", round(kor_trend_tq$estimate, 4), "\n")
-cat("p =", round(kor_trend_tq$p.value, 4), "\n")
-cat("n =", nrow(reg_data), "\n")
 
 # ============================================================
 # 12. VISUALISIERUNGEN
@@ -332,16 +325,9 @@ p_folge <- n_folge_ueber / n_folge_gesamt
 p_folge_unter <- n_folge_unter / n_folge_gesamt
 persistenz_erwartet <- p_folge^2 + p_folge_unter^2
 
-cat("\n\n=== VERTEILUNG DER FOLGESPIEL-RICHTUNGEN ===\n")
-cat("Serienlänge N =", N, "\n")
+
 cat("Folgespiele gesamt:", n_folge_gesamt, "\n")
-cat("Überdurchschnittliche Folgespiele:", n_folge_ueber,
-    "(", round(p_folge * 100, 2), "%)\n")
-cat("Unterdurchschnittliche Folgespiele:", n_folge_unter,
-    "(", round(p_folge_unter * 100, 2), "%)\n")
-cat("p_folge (Anteil überdurchschnittlich):", round(p_folge * 100, 2), "%\n")
-cat("p_folge_unter (Anteil unterdurchschnittlich):", round(p_folge_unter * 100, 2), "%\n")
-cat("Erwartete Persistenz:", round(persistenz_erwartet * 100, 2), "%\n")
+
 
 # Kennzahlen für die allgemeine Persistenz
 mittelwert <- mean(reg_data$Gleiche_Richtung, na.rm = TRUE)
@@ -490,7 +476,7 @@ n_pos <- length(data_pos)
 n_gesamt <- nrow(reg_data)
 
 kernergebnisse <- data.frame(
-  Nr = 1:20,
+  Nr = 1:26,
   Kennzahl = c(
     "P(Fortsetzung allgemein)",
     "n (allgemein)",
@@ -511,7 +497,13 @@ kernergebnisse <- data.frame(
     "Odds Ratio Asymmetrie (Logit)",
     "p-Wert Asymmetrie (Logit)",
     "Pearson r (Trend vs. Trefferquote)",
-    "p-Wert Pearson (Trend vs. Trefferquote)"
+    "p-Wert Pearson (Trend vs. Trefferquote)",
+    "P(Folge überdurchschnittlich)",
+    "Persistenz erwartet (aus P(Folge))",
+    "Cluster-robuster SE β₀",
+    "p-Wert cluster-robust (β₀ gegen 50%)",
+    "Cluster-robuster SE β₁",
+    "p-Wert cluster-robust (β₁ gegen 0)"
   ),
   Wert = c(
     p_gesamt,
@@ -533,7 +525,13 @@ kernergebnisse <- data.frame(
     logit_odds_ratio,
     logit_beta1_p,
     unname(kor_trend_tq$estimate),
-    kor_trend_tq$p.value
+    kor_trend_tq$p.value,
+    p_folge,
+    persistenz_erwartet,
+    se_beta0_cluster,
+    p_beta0_cluster_gegen_50,
+    se_beta1_cluster,
+    p_beta1_cluster_gegen_0
   ),
   Darstellung = c(
     paste0(round(p_gesamt * 100, 2), "%"),
@@ -555,7 +553,13 @@ kernergebnisse <- data.frame(
     round(logit_odds_ratio, 4),
     round(logit_beta1_p, 4),
     round(unname(kor_trend_tq$estimate), 4),
-    round(kor_trend_tq$p.value, 4)
+    round(kor_trend_tq$p.value, 4),
+    paste0(round(p_folge * 100, 2), "%"),
+    paste0(round(persistenz_erwartet * 100, 2), "%"),
+    round(se_beta0_cluster, 4),
+    round(p_beta0_cluster_gegen_50, 4),
+    round(se_beta1_cluster, 4),
+    round(p_beta1_cluster_gegen_0, 4)
   ),
   stringsAsFactors = FALSE
 )
@@ -575,5 +579,3 @@ cat("Spiele in der Regression:", nrow(reg_data), "\n")
 cat("\n\n=== KERNERGEBNISSE ===\n")
 print(kernergebnisse, row.names = FALSE)
 cat("\n\n=== FERTIG! ===\n")
-
-
