@@ -1,5 +1,3 @@
-#####Aus Spaß weil ich Bock und Zeit hab#####
-
 # ============================================================
 # BINAERE TREND-REGRESSION - PERSISTENZ-TEST
 # Bachelorarbeit: Einfluss vergangener Trefferquoten
@@ -12,7 +10,7 @@ library(lmtest)
 # ============================================================
 # 1. EINGABEN
 # ============================================================
-excel_datei <- "/Users/georg/Library/Mobile Documents/com~apple~CloudDocs/Uni/Semester 6/BA/BA/BA_Datensatz_1.xlsx"
+excel_datei <- "BA_Datensatz_1.xlsx"
 min_spiele <- 60  #55, 65
 N <- 1           # 3, 5, 7, 9
 sheet_name <- 1
