@@ -236,7 +236,7 @@ kor_trend_tq <- cor.test(reg_data$Trend, reg_data$Aktuelle_Tq, method = "pearson
 
 
 # ============================================================
-# 12. VISUALISIERUNGEN
+# 9. VISUALISIERUNGEN
 # ============================================================
 
 format_prozent <- function(x, digits = 1) {
